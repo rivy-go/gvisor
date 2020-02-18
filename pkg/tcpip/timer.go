@@ -131,10 +131,11 @@ func (t *CancellableTimer) StopLocked() {
 func (t *CancellableTimer) Reset(d time.Duration) {
 	// Create a new instance.
 	earlyReturn := false
+	locker := t.locker
 	t.instance = cancellableTimerInstance{
 		timer: time.AfterFunc(d, func() {
-			t.locker.Lock()
-			defer t.locker.Unlock()
+			locker.Lock()
+			defer locker.Unlock()
 
 			if earlyReturn {
 				// If we reach this point, it means that the timer fired while another

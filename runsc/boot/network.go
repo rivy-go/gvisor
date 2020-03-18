@@ -17,6 +17,7 @@ package boot
 import (
 	"fmt"
 	"net"
+	"runtime"
 	"strings"
 	"syscall"
 
@@ -24,6 +25,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/link/fdbased"
 	"gvisor.dev/gvisor/pkg/tcpip/link/loopback"
+	"gvisor.dev/gvisor/pkg/tcpip/link/qdisc/fifo"
 	"gvisor.dev/gvisor/pkg/tcpip/link/sniffer"
 	"gvisor.dev/gvisor/pkg/tcpip/network/arp"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
@@ -185,6 +187,8 @@ func (n *Network) CreateLinksAndRoutes(args *CreateLinksAndRoutesArgs, _ *struct
 		}
 
 		mac := tcpip.LinkAddress(link.LinkAddress)
+		log.Infof("gso max size is: %d", link.GSOMaxSize)
+
 		linkEP, err := fdbased.New(&fdbased.Options{
 			FDs:                FDs,
 			MTU:                uint32(link.MTU),
@@ -200,7 +204,7 @@ func (n *Network) CreateLinksAndRoutes(args *CreateLinksAndRoutesArgs, _ *struct
 		}
 
 		log.Infof("Enabling interface %q with id %d on addresses %+v (%v) w/ %d channels", link.Name, nicID, link.Addresses, mac, link.NumChannels)
-		if err := n.createNICWithAddrs(nicID, link.Name, linkEP, link.Addresses); err != nil {
+		if err := n.createNICWithAddrs(nicID, link.Name, fifo.New(linkEP, runtime.GOMAXPROCS(0), 1000), link.Addresses); err != nil {
 			return err
 		}
 

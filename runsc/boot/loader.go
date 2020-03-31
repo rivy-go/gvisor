@@ -1014,7 +1014,6 @@ func newEmptySandboxNetworkStack(clock tcpip.Clock, uniqueID stack.UniqueID) (in
 	}
 
 	s.FillDefaultIPTables()
-
 	return &s, nil
 }
 

@@ -347,3 +347,16 @@ func logicalLen(tcp header.TCP) seqnum.Size {
 	}
 	return l
 }
+
+// IsEmpty returns true if tcb is not initialized.
+func (t *TCB) IsEmpty() bool {
+	if t.inbound != (stream{}) || t.outbound != (stream{}) {
+		return false
+	}
+
+	if t.firstFin != nil || t.state != ResultDrop {
+		return false
+	}
+
+	return true
+}

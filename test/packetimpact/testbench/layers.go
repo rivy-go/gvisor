@@ -15,6 +15,7 @@
 package testbench
 
 import (
+	"encoding/hex"
 	"fmt"
 	"reflect"
 	"strings"
@@ -35,14 +36,14 @@ import (
 type Layer interface {
 	fmt.Stringer
 
-	// toBytes converts the Layer into bytes. In places where the Layer's field
+	// ToBytes converts the Layer into bytes. In places where the Layer's field
 	// isn't nil, the value that is pointed to is used. When the field is nil, a
 	// reasonable default for the Layer is used. For example, "64" for IPv4 TTL
 	// and a calculated checksum for TCP or IP. Some layers require information
 	// from the previous or next layers in order to compute a default, such as
 	// TCP's checksum or Ethernet's type, so each Layer has a doubly-linked list
 	// to the layer's neighbors.
-	toBytes() ([]byte, error)
+	ToBytes() ([]byte, error)
 
 	// match checks if the current Layer matches the provided Layer. If either
 	// Layer has a nil in a given field, that field is considered matching.
@@ -64,6 +65,9 @@ type Layer interface {
 
 	// setPrev sets the pointer to the Layer encapsulating this one.
 	setPrev(Layer)
+
+	// merge overrides the values in the interface with the provided values.
+	merge(Layer) error
 }
 
 // LayerBase is the common elements of all layers.
@@ -91,6 +95,9 @@ func (lb *LayerBase) setPrev(l Layer) {
 // equalLayer compares that two Layer structs match while ignoring field in
 // which either input has a nil and also ignoring the LayerBase of the inputs.
 func equalLayer(x, y Layer) bool {
+	if x == nil || y == nil {
+		return true
+	}
 	// opt ignores comparison pairs where either of the inputs is a nil.
 	opt := cmp.FilterValues(func(x, y interface{}) bool {
 		for _, l := range []interface{}{x, y} {
@@ -118,7 +125,12 @@ func stringLayer(l Layer) string {
 		if v.IsNil() {
 			continue
 		}
-		ret = append(ret, fmt.Sprintf("%s:%v", t.Name, reflect.Indirect(v)))
+		v = reflect.Indirect(v)
+		if v.Kind() == reflect.Slice && v.Type().Elem().Kind() == reflect.Uint8 {
+			ret = append(ret, fmt.Sprintf("%s:\n%v", t.Name, hex.Dump(v.Bytes())))
+		} else {
+			ret = append(ret, fmt.Sprintf("%s:%v", t.Name, v))
+		}
 	}
 	return fmt.Sprintf("&%s{%s}", t, strings.Join(ret, " "))
 }
@@ -135,7 +147,14 @@ func (l *Ether) String() string {
 	return stringLayer(l)
 }
 
-func (l *Ether) toBytes() ([]byte, error) {
+// ToBytes converts the Layer into bytes. In places where the Layer's field
+// isn't nil, the value that is pointed to is used. When the field is nil, a
+// reasonable default for the Layer is used. For example, "64" for IPv4 TTL and
+// a calculated checksum for TCP or IP. Some layers require information from the
+// previous or next layers in order to compute a default, such as TCP's checksum
+// or Ethernet's type, so each Layer has a doubly-linked list to the layer's
+// neighbors.
+func (l *Ether) ToBytes() ([]byte, error) {
 	b := make([]byte, header.EthernetMinimumSize)
 	h := header.Ethernet(b)
 	fields := &header.EthernetFields{}
@@ -151,6 +170,8 @@ func (l *Ether) toBytes() ([]byte, error) {
 		switch n := l.next().(type) {
 		case *IPv4:
 			fields.Type = header.IPv4ProtocolNumber
+		case *IPv6:
+			fields.Type = header.IPv6ProtocolNumber
 		default:
 			// TODO(b/150301488): Support more protocols, like IPv6.
 			return nil, fmt.Errorf("ethernet header's next layer is unrecognized: %#v", n)
@@ -182,17 +203,26 @@ func ParseEther(b []byte) (Layers, error) {
 		Type:    NetworkProtocolNumber(h.Type()),
 	}
 	layers := Layers{&ether}
+	var moreLayers Layers
+	var err error
 	switch h.Type() {
 	case header.IPv4ProtocolNumber:
-		moreLayers, err := ParseIPv4(b[ether.length():])
-		if err != nil {
-			return nil, err
-		}
-		return append(layers, moreLayers...), nil
+		moreLayers, err = ParseIPv4(b[ether.length():])
+	case header.IPv6ProtocolNumber:
+		moreLayers, err = ParseIPv6(b[ether.length():])
 	default:
 		// TODO(b/150301488): Support more protocols, like IPv6.
 		return nil, fmt.Errorf("ethernet header's type field is unrecognized: %#04x", h.Type())
 	}
+	if err != nil {
+		return nil, err
+	}
+	layers = append(layers, moreLayers...)
+	if len(layers) > 1 {
+		layers[0].setNext(layers[1])
+		layers[1].setPrev(layers[0])
+	}
+	return layers, nil
 }
 
 func (l *Ether) match(other Layer) bool {
@@ -201,6 +231,12 @@ func (l *Ether) match(other Layer) bool {
 
 func (l *Ether) length() int {
 	return header.EthernetMinimumSize
+}
+
+// merge overrides the values in l with the values from other but only in fields
+// where the value is not nil.
+func (l *Ether) merge(other Layer) error {
+	return mergo.Merge(l, other, mergo.WithOverride)
 }
 
 // IPv4 can construct and match an IPv4 encapsulation.
@@ -223,7 +259,14 @@ func (l *IPv4) String() string {
 	return stringLayer(l)
 }
 
-func (l *IPv4) toBytes() ([]byte, error) {
+// ToBytes converts the Layer into bytes. In places where the Layer's field
+// isn't nil, the value that is pointed to is used. When the field is nil, a
+// reasonable default for the Layer is used. For example, "64" for IPv4 TTL and
+// a calculated checksum for TCP or IP. Some layers require information from the
+// previous or next layers in order to compute a default, such as TCP's checksum
+// or Ethernet's type, so each Layer has a doubly-linked list to the layer's
+// neighbors.
+func (l *IPv4) ToBytes() ([]byte, error) {
 	b := make([]byte, header.IPv4MinimumSize)
 	h := header.IPv4(b)
 	fields := &header.IPv4Fields{
@@ -336,15 +379,21 @@ func ParseIPv4(b []byte) (Layers, error) {
 		if err != nil {
 			return nil, err
 		}
-		return append(layers, moreLayers...), nil
+		layers = append(layers, moreLayers...)
 	case header.UDPProtocolNumber:
 		moreLayers, err := ParseUDP(b[ipv4.length():])
 		if err != nil {
 			return nil, err
 		}
-		return append(layers, moreLayers...), nil
+		layers = append(layers, moreLayers...)
+	default:
+		return nil, fmt.Errorf("ipv4 header's protocol field is unrecognized: %#02x", h.Protocol())
 	}
-	return nil, fmt.Errorf("ipv4 header's protocol field is unrecognized: %#02x", h.Protocol())
+	if len(layers) > 1 {
+		layers[0].setNext(layers[1])
+		layers[1].setPrev(layers[0])
+	}
+	return layers, nil
 }
 
 func (l *IPv4) match(other Layer) bool {
@@ -356,6 +405,213 @@ func (l *IPv4) length() int {
 		return header.IPv4MinimumSize
 	}
 	return int(*l.IHL)
+}
+
+// merge overrides the values in l with the values from other but only in fields
+// where the value is not nil.
+func (l *IPv4) merge(other Layer) error {
+	return mergo.Merge(l, other, mergo.WithOverride)
+}
+
+// IPv6 can construct and match an IPv6 encapsulation.
+type IPv6 struct {
+	LayerBase
+	TrafficClass  *uint8
+	FlowLabel     *uint32
+	PayloadLength *uint16
+	NextHeader    *uint8
+	HopLimit      *uint8
+	SrcAddr       *tcpip.Address
+	DstAddr       *tcpip.Address
+}
+
+func (l *IPv6) String() string {
+	return stringLayer(l)
+}
+
+// ToBytes converts the Layer into bytes. In places where the Layer's field
+// isn't nil, the value that is pointed to is used. When the field is nil, a
+// reasonable default for the Layer is used. For example, "64" for IPv4 TTL and
+// a calculated checksum for TCP or IP. Some layers require information from the
+// previous or next layers in order to compute a default, such as TCP's checksum
+// or Ethernet's type, so each Layer has a doubly-linked list to the layer's
+// neighbors.
+func (l *IPv6) ToBytes() ([]byte, error) {
+	b := make([]byte, header.IPv6MinimumSize)
+	h := header.IPv6(b)
+	fields := &header.IPv6Fields{
+		HopLimit: 64,
+	}
+	if l.TrafficClass != nil {
+		fields.TrafficClass = *l.TrafficClass
+	}
+	if l.FlowLabel != nil {
+		fields.FlowLabel = *l.FlowLabel
+	}
+	if l.PayloadLength != nil {
+		fields.PayloadLength = *l.PayloadLength
+	} else {
+		for current := l.next(); current != nil; current = current.next() {
+			fields.PayloadLength += uint16(current.length())
+		}
+	}
+	if l.NextHeader != nil {
+		fields.NextHeader = *l.NextHeader
+	} else {
+		switch n := l.next().(type) {
+		case *TCP:
+			fields.NextHeader = uint8(header.TCPProtocolNumber)
+		case *UDP:
+			fields.NextHeader = uint8(header.UDPProtocolNumber)
+		case *ICMPv6:
+			fields.NextHeader = uint8(header.ICMPv6ProtocolNumber)
+		default:
+			// TODO(b/150301488): Support more protocols as needed.
+			return nil, fmt.Errorf("ToBytes can't deduce the IPv6 header's next protocol: %#v", n)
+		}
+	}
+	if l.HopLimit != nil {
+		fields.HopLimit = *l.HopLimit
+	}
+	if l.SrcAddr != nil {
+		fields.SrcAddr = *l.SrcAddr
+	}
+	if l.DstAddr != nil {
+		fields.DstAddr = *l.DstAddr
+	}
+	h.Encode(fields)
+	return h, nil
+}
+
+// ParseIPv6 parses the bytes assuming that they start with an ipv6 header and
+// continues parsing further encapsulations.
+func ParseIPv6(b []byte) (Layers, error) {
+	h := header.IPv6(b)
+	tos, flowLabel := h.TOS()
+	ipv6 := IPv6{
+		TrafficClass:  &tos,
+		FlowLabel:     &flowLabel,
+		PayloadLength: Uint16(h.PayloadLength()),
+		NextHeader:    Uint8(h.NextHeader()),
+		HopLimit:      Uint8(h.HopLimit()),
+		SrcAddr:       Address(h.SourceAddress()),
+		DstAddr:       Address(h.DestinationAddress()),
+	}
+	layers := Layers{&ipv6}
+	switch h.TransportProtocol() {
+	case header.TCPProtocolNumber:
+		moreLayers, err := ParseTCP(b[ipv6.length():])
+		if err != nil {
+			return nil, err
+		}
+		return append(layers, moreLayers...), nil
+	case header.UDPProtocolNumber:
+		moreLayers, err := ParseUDP(b[ipv6.length():])
+		if err != nil {
+			return nil, err
+		}
+		return append(layers, moreLayers...), nil
+	case header.ICMPv6ProtocolNumber:
+		moreLayers, err := ParseICMPv6(b[ipv6.length():])
+		if err != nil {
+			return nil, err
+		}
+		return append(layers, moreLayers...), nil
+	}
+	return nil, fmt.Errorf("parser can't deduce the IPv6 header's next protocol: %v", h.TransportProtocol())
+}
+
+func (l *IPv6) match(other Layer) bool {
+	return equalLayer(l, other)
+}
+
+func (l *IPv6) length() int {
+	return header.IPv6MinimumSize
+}
+
+// merge overrides the values in l with the values from other but only in fields
+// where the value is not nil.
+func (l *IPv6) merge(other Layer) error {
+	return mergo.Merge(l, other, mergo.WithOverride)
+}
+
+// ICMPv6 can construct and match an ICMPv6 encapsulation.
+type ICMPv6 struct {
+	LayerBase
+	Type       *header.ICMPv6Type
+	Code       *byte
+	Checksum   *uint16
+	NDPPayload []byte
+}
+
+func (l *ICMPv6) String() string {
+	// TODO(eyalsoha): Do something smarter here when *l.Type is ParameterProblem?
+	// We could parse the contents of the Payload as if it were an IPv6 packet.
+	return stringLayer(l)
+}
+
+// ToBytes converts the Layer into bytes. In places where the Layer's field
+// isn't nil, the value that is pointed to is used. When the field is nil, a
+// reasonable default for the Layer is used. For example, "64" for IPv4 TTL and
+// a calculated checksum for TCP or IP. Some layers require information from the
+// previous or next layers in order to compute a default, such as TCP's checksum
+// or Ethernet's type, so each Layer has a doubly-linked list to the layer's
+// neighbors.
+func (l *ICMPv6) ToBytes() ([]byte, error) {
+	b := make([]byte, header.ICMPv6HeaderSize+len(l.NDPPayload))
+	h := header.ICMPv6(b)
+	if l.Type != nil {
+		h.SetType(*l.Type)
+	}
+	if l.Code != nil {
+		h.SetCode(*l.Code)
+	}
+	copy(h.NDPPayload(), l.NDPPayload)
+	if l.Checksum != nil {
+		h.SetChecksum(*l.Checksum)
+	} else {
+		ipv6 := l.prev().(*IPv6)
+		h.SetChecksum(header.ICMPv6Checksum(h, *ipv6.SrcAddr, *ipv6.DstAddr, buffer.VectorisedView{}))
+	}
+	return h, nil
+}
+
+// ICMPv6Type is a helper routine that allocates a new ICMPv6Type value to store
+// v and returns a pointer to it.
+func ICMPv6Type(v header.ICMPv6Type) *header.ICMPv6Type {
+	return &v
+}
+
+// Byte is a helper routine that allocates a new byte value to store
+// v and returns a pointer to it.
+func Byte(v byte) *byte {
+	return &v
+}
+
+// ParseICMPv6 parses the bytes assuming that they start with an ICMPv6 header.
+func ParseICMPv6(b []byte) (Layers, error) {
+	h := header.ICMPv6(b)
+	icmpv6 := ICMPv6{
+		Type:       ICMPv6Type(h.Type()),
+		Code:       Byte(h.Code()),
+		Checksum:   Uint16(h.Checksum()),
+		NDPPayload: h.NDPPayload(),
+	}
+	return Layers{&icmpv6}, nil
+}
+
+func (l *ICMPv6) match(other Layer) bool {
+	return equalLayer(l, other)
+}
+
+func (l *ICMPv6) length() int {
+	return header.ICMPv6HeaderSize + len(l.NDPPayload)
+}
+
+// merge overrides the values in l with the values from other but only in fields
+// where the value is not nil.
+func (l *ICMPv6) merge(other Layer) error {
+	return mergo.Merge(l, other, mergo.WithOverride)
 }
 
 // TCP can construct and match a TCP encapsulation.
@@ -376,7 +632,14 @@ func (l *TCP) String() string {
 	return stringLayer(l)
 }
 
-func (l *TCP) toBytes() ([]byte, error) {
+// ToBytes converts the Layer into bytes. In places where the Layer's field
+// isn't nil, the value that is pointed to is used. When the field is nil, a
+// reasonable default for the Layer is used. For example, "64" for IPv4 TTL and
+// a calculated checksum for TCP or IP. Some layers require information from the
+// previous or next layers in order to compute a default, such as TCP's checksum
+// or Ethernet's type, so each Layer has a doubly-linked list to the layer's
+// neighbors.
+func (l *TCP) ToBytes() ([]byte, error) {
 	b := make([]byte, header.TCPMinimumSize)
 	h := header.TCP(b)
 	if l.SrcPort != nil {
@@ -441,7 +704,7 @@ func layerChecksum(l Layer, protoNumber tcpip.TransportProtocolNumber) (uint16, 
 	}
 	var payloadBytes buffer.VectorisedView
 	for current := l.next(); current != nil; current = current.next() {
-		payload, err := current.toBytes()
+		payload, err := current.ToBytes()
 		if err != nil {
 			return 0, fmt.Errorf("can't get bytes for next header: %s", payload)
 		}
@@ -488,7 +751,12 @@ func ParseTCP(b []byte) (Layers, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(layers, moreLayers...), nil
+	layers = append(layers, moreLayers...)
+	if len(layers) > 1 {
+		layers[0].setNext(layers[1])
+		layers[1].setPrev(layers[0])
+	}
+	return layers, nil
 }
 
 func (l *TCP) match(other Layer) bool {
@@ -504,7 +772,7 @@ func (l *TCP) length() int {
 
 // merge overrides the values in l with the values from other but only in fields
 // where the value is not nil.
-func (l *TCP) merge(other TCP) error {
+func (l *TCP) merge(other Layer) error {
 	return mergo.Merge(l, other, mergo.WithOverride)
 }
 
@@ -521,7 +789,14 @@ func (l *UDP) String() string {
 	return stringLayer(l)
 }
 
-func (l *UDP) toBytes() ([]byte, error) {
+// ToBytes converts the Layer into bytes. In places where the Layer's field
+// isn't nil, the value that is pointed to is used. When the field is nil, a
+// reasonable default for the Layer is used. For example, "64" for IPv4 TTL and
+// a calculated checksum for TCP or IP. Some layers require information from the
+// previous or next layers in order to compute a default, such as TCP's checksum
+// or Ethernet's type, so each Layer has a doubly-linked list to the layer's
+// neighbors.
+func (l *UDP) ToBytes() ([]byte, error) {
 	b := make([]byte, header.UDPMinimumSize)
 	h := header.UDP(b)
 	if l.SrcPort != nil {
@@ -571,7 +846,12 @@ func ParseUDP(b []byte) (Layers, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(layers, moreLayers...), nil
+	layers = append(layers, moreLayers...)
+	if len(layers) > 1 {
+		layers[0].setNext(layers[1])
+		layers[1].setPrev(layers[0])
+	}
+	return layers, nil
 }
 
 func (l *UDP) match(other Layer) bool {
@@ -587,7 +867,7 @@ func (l *UDP) length() int {
 
 // merge overrides the values in l with the values from other but only in fields
 // where the value is not nil.
-func (l *UDP) merge(other UDP) error {
+func (l *UDP) merge(other Layer) error {
 	return mergo.Merge(l, other, mergo.WithOverride)
 }
 
@@ -610,7 +890,14 @@ func ParsePayload(b []byte) (Layers, error) {
 	return Layers{&payload}, nil
 }
 
-func (l *Payload) toBytes() ([]byte, error) {
+// ToBytes converts the Layer into bytes. In places where the Layer's field
+// isn't nil, the value that is pointed to is used. When the field is nil, a
+// reasonable default for the Layer is used. For example, "64" for IPv4 TTL and
+// a calculated checksum for TCP or IP. Some layers require information from the
+// previous or next layers in order to compute a default, such as TCP's checksum
+// or Ethernet's type, so each Layer has a doubly-linked list to the layer's
+// neighbors.
+func (l *Payload) ToBytes() ([]byte, error) {
 	return l.Bytes, nil
 }
 
@@ -622,10 +909,18 @@ func (l *Payload) length() int {
 	return len(l.Bytes)
 }
 
+// merge overrides the values in l with the values from other but only in fields
+// where the value is not nil.
+func (l *Payload) merge(other Layer) error {
+	return mergo.Merge(l, other, mergo.WithOverride)
+}
+
 // Layers is an array of Layer and supports similar functions to Layer.
 type Layers []Layer
 
-func (ls *Layers) toBytes() ([]byte, error) {
+// ToBytes converts the Layers into bytes. It creates a linked list of the Layer
+// structs and then concatentates the output of ToBytes on each Layer.
+func (ls *Layers) ToBytes() ([]byte, error) {
 	for i, l := range *ls {
 		if i > 0 {
 			l.setPrev((*ls)[i-1])
@@ -636,7 +931,7 @@ func (ls *Layers) toBytes() ([]byte, error) {
 	}
 	outBytes := []byte{}
 	for _, l := range *ls {
-		layerBytes, err := l.toBytes()
+		layerBytes, err := l.ToBytes()
 		if err != nil {
 			return nil, err
 		}
@@ -649,8 +944,8 @@ func (ls *Layers) match(other Layers) bool {
 	if len(*ls) > len(other) {
 		return false
 	}
-	for i := 0; i < len(*ls); i++ {
-		if !equalLayer((*ls)[i], other[i]) {
+	for i, this := range *ls {
+		if !equalLayer(this, other[i]) {
 			return false
 		}
 	}

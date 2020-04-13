@@ -37,13 +37,10 @@ import (
 
 // Test that exec uses the exact same capability set as the container.
 func TestExecCapabilities(t *testing.T) {
-	if err := dockerutil.Pull("alpine"); err != nil {
-		t.Fatalf("docker pull failed: %v", err)
-	}
 	d := dockerutil.MakeDocker("exec-capabilities-test")
 
 	// Start the container.
-	if err := d.Run("alpine", "sh", "-c", "cat /proc/self/status; sleep 100"); err != nil {
+	if err := d.Run("gvisor.dev/images/basic_alpine", "sh", "-c", "cat /proc/self/status; sleep 100"); err != nil {
 		t.Fatalf("docker run failed: %v", err)
 	}
 	defer d.CleanUp()
@@ -72,13 +69,10 @@ func TestExecCapabilities(t *testing.T) {
 // Test that 'exec --privileged' adds all capabilities, except for CAP_NET_RAW
 // which is removed from the container when --net-raw=false.
 func TestExecPrivileged(t *testing.T) {
-	if err := dockerutil.Pull("alpine"); err != nil {
-		t.Fatalf("docker pull failed: %v", err)
-	}
 	d := dockerutil.MakeDocker("exec-privileged-test")
 
 	// Start the container with all capabilities dropped.
-	if err := d.Run("--cap-drop=all", "alpine", "sh", "-c", "cat /proc/self/status; sleep 100"); err != nil {
+	if err := d.Run("--cap-drop=all", "gvisor.dev/images/basic_alpine", "sh", "-c", "cat /proc/self/status; sleep 100"); err != nil {
 		t.Fatalf("docker run failed: %v", err)
 	}
 	defer d.CleanUp()
@@ -114,13 +108,10 @@ func TestExecPrivileged(t *testing.T) {
 }
 
 func TestExecJobControl(t *testing.T) {
-	if err := dockerutil.Pull("alpine"); err != nil {
-		t.Fatalf("docker pull failed: %v", err)
-	}
 	d := dockerutil.MakeDocker("exec-job-control-test")
 
 	// Start the container.
-	if err := d.Run("alpine", "sleep", "1000"); err != nil {
+	if err := d.Run("gvisor.dev/images/basic_alpine", "sleep", "1000"); err != nil {
 		t.Fatalf("docker run failed: %v", err)
 	}
 	defer d.CleanUp()
@@ -170,13 +161,10 @@ func TestExecJobControl(t *testing.T) {
 
 // Test that failure to exec returns proper error message.
 func TestExecError(t *testing.T) {
-	if err := dockerutil.Pull("alpine"); err != nil {
-		t.Fatalf("docker pull failed: %v", err)
-	}
 	d := dockerutil.MakeDocker("exec-error-test")
 
 	// Start the container.
-	if err := d.Run("alpine", "sleep", "1000"); err != nil {
+	if err := d.Run("gvisor.dev/images/basic_alpine", "sleep", "1000"); err != nil {
 		t.Fatalf("docker run failed: %v", err)
 	}
 	defer d.CleanUp()
@@ -192,13 +180,10 @@ func TestExecError(t *testing.T) {
 
 // Test that exec inherits environment from run.
 func TestExecEnv(t *testing.T) {
-	if err := dockerutil.Pull("alpine"); err != nil {
-		t.Fatalf("docker pull failed: %v", err)
-	}
 	d := dockerutil.MakeDocker("exec-env-test")
 
 	// Start the container with env FOO=BAR.
-	if err := d.Run("-e", "FOO=BAR", "alpine", "sleep", "1000"); err != nil {
+	if err := d.Run("-e", "FOO=BAR", "gvisor.dev/images/basic_alpine", "sleep", "1000"); err != nil {
 		t.Fatalf("docker run failed: %v", err)
 	}
 	defer d.CleanUp()
@@ -216,13 +201,10 @@ func TestExecEnv(t *testing.T) {
 // TestRunEnvHasHome tests that run always has HOME environment set.
 func TestRunEnvHasHome(t *testing.T) {
 	// Base alpine image does not have any environment variables set.
-	if err := dockerutil.Pull("alpine"); err != nil {
-		t.Fatalf("docker pull failed: %v", err)
-	}
 	d := dockerutil.MakeDocker("run-env-test")
 
 	// Exec "echo $HOME". The 'bin' user's home dir is '/bin'.
-	got, err := d.RunFg("--user", "bin", "alpine", "/bin/sh", "-c", "echo $HOME")
+	got, err := d.RunFg("--user", "bin", "gvisor.dev/images/basic_alpine", "/bin/sh", "-c", "echo $HOME")
 	if err != nil {
 		t.Fatalf("docker run failed: %v", err)
 	}
@@ -235,12 +217,9 @@ func TestRunEnvHasHome(t *testing.T) {
 // Test that exec always has HOME environment set, even when not set in run.
 func TestExecEnvHasHome(t *testing.T) {
 	// Base alpine image does not have any environment variables set.
-	if err := dockerutil.Pull("alpine"); err != nil {
-		t.Fatalf("docker pull failed: %v", err)
-	}
 	d := dockerutil.MakeDocker("exec-env-home-test")
 
-	if err := d.Run("alpine", "sleep", "1000"); err != nil {
+	if err := d.Run("gvisor.dev/images/basic_alpine", "sleep", "1000"); err != nil {
 		t.Fatalf("docker run failed: %v", err)
 	}
 	defer d.CleanUp()

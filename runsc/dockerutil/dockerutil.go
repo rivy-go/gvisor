@@ -134,25 +134,28 @@ func LinkArg(source *Docker, target string) string {
 
 // PrepareFiles creates temp directory to copy files there. The sandbox doesn't
 // have access to files in the test dir.
-func PrepareFiles(names ...string) (string, error) {
+func PrepareFiles(names ...string) (string, func(), error) {
 	dir, err := ioutil.TempDir("", "image-test")
 	if err != nil {
-		return "", fmt.Errorf("ioutil.TempDir failed: %v", err)
+		return "", nil, fmt.Errorf("ioutil.TempDir failed: %v", err)
 	}
 	if err := os.Chmod(dir, 0777); err != nil {
-		return "", fmt.Errorf("os.Chmod(%q, 0777) failed: %v", dir, err)
+		return "", nil, fmt.Errorf("os.Chmod(%q, 0777) failed: %v", dir, err)
 	}
 	for _, name := range names {
 		src, err := testutil.FindFile(name)
 		if err != nil {
-			return "", fmt.Errorf("testutil.Preparefiles(%q) failed: %v", name, err)
+			return "", nil, fmt.Errorf("testutil.Preparefiles(%q) failed: %v", name, err)
 		}
 		dst := path.Join(dir, path.Base(name))
 		if err := testutil.Copy(src, dst); err != nil {
-			return "", fmt.Errorf("testutil.Copy(%q, %q) failed: %v", src, dst, err)
+			return "", nil, fmt.Errorf("testutil.Copy(%q, %q) failed: %v", src, dst, err)
 		}
 	}
-	return dir, nil
+	cleanup := func() {
+		os.RemoveAll(dir)
+	}
+	return dir, cleanup, nil
 }
 
 // do executes docker command.
@@ -175,14 +178,6 @@ func doWithPty(args ...string) (*exec.Cmd, *os.File, error) {
 		return nil, nil, fmt.Errorf("error executing docker %s with a pty: %v", args, err)
 	}
 	return cmd, ptmx, nil
-}
-
-// Pull pulls a docker image. This is used in tests to isolate the
-// time to pull the image off the network from the time to actually
-// start the container, to avoid timeouts over slow networks.
-func Pull(image string) error {
-	_, err := do("pull", image)
-	return err
 }
 
 // Docker contains the name and the runtime of a docker container.

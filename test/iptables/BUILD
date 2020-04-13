@@ -23,6 +23,7 @@ go_test(
     srcs = [
         "iptables_test.go",
     ],
+    data = ["//test/iptables/runner"],
     library = ":iptables",
     tags = [
         "local",

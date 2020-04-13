@@ -22,7 +22,7 @@ var MountOverSymlink = `
                 "name": "busybox"
         },
         "image": {
-                "image": "k8s.gcr.io/busybox"
+                "image": "gvisor.dev/images/basic_busybox"
         },
         "command": [
                 "sleep",

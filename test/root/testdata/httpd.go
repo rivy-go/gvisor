@@ -21,7 +21,7 @@ const Httpd = `
     "name": "httpd"
   },
   "image":{
-    "image": "httpd"
+    "image": "gvisor.dev/images/httpd"
   },
   "mounts": [
   ],

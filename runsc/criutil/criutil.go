@@ -55,12 +55,6 @@ func NewCrictl(timeout time.Duration, endpoint string) *Crictl {
 	}
 }
 
-// Pull pulls an container image. It corresponds to `crictl pull`.
-func (cc *Crictl) Pull(imageName string) error {
-	_, err := cc.run("pull", imageName)
-	return err
-}
-
 // RunPod creates a sandbox. It corresponds to `crictl runp`.
 func (cc *Crictl) RunPod(sbSpecFile string) (string, error) {
 	podID, err := cc.run("runp", sbSpecFile)
@@ -174,10 +168,6 @@ func (cc *Crictl) StartContainer(podID, image, sbSpec, contSpec string) (string,
 }
 
 func (cc *Crictl) startContainer(podID, image, sbSpecFile, contSpecFile string) (string, error) {
-	if err := cc.Pull(image); err != nil {
-		return "", fmt.Errorf("failed to pull %s: %v", image, err)
-	}
-
 	contID, err := cc.Create(podID, contSpecFile, sbSpecFile)
 	if err != nil {
 		return "", fmt.Errorf("failed to create container in pod %q: %v", podID, err)

@@ -1,12 +1,12 @@
-language: minimal
-sudo: required
+language: shell
 dist: xenial
 cache:
   directories:
     - /home/travis/.cache/bazel/
+os: linux
 services:
   - docker
-matrix:
+jobs:
   include:
    - os: linux
      arch: amd64
@@ -16,7 +16,7 @@ matrix:
      env: RUNSC_PATH=./bazel-bin/runsc/linux_arm64_pure_stripped/runsc
 script:
    - uname -a
-   - make DOCKER_RUN_OPTIONS="" BAZEL_OPTIONS="build runsc:runsc" bazel && $RUNSC_PATH --alsologtostderr --network none --debug --TESTONLY-unsafe-nonroot=true --rootless do ls
+   - make DOCKER_RUN_OPTIONS="" runsc && $RUNSC_PATH --alsologtostderr --network none --debug --TESTONLY-unsafe-nonroot=true --rootless do ls
 branches:
   except:
   # Skip copybara branches.

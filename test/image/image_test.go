@@ -102,19 +102,18 @@ func testHTTPServer(t *testing.T, port int) {
 }
 
 func TestHttpd(t *testing.T) {
-	if err := dockerutil.Pull("httpd"); err != nil {
-		t.Fatalf("docker pull failed: %v", err)
-	}
 	d := dockerutil.MakeDocker("http-test")
 
-	dir, err := dockerutil.PrepareFiles("test/image/latin10k.txt")
+	// Copy in the 10k payload.
+	dir, cleanup, err := dockerutil.PrepareFiles("test/image/latin10k.txt")
 	if err != nil {
 		t.Fatalf("PrepareFiles() failed: %v", err)
 	}
+	defer cleanup()
 
 	// Start the container.
 	mountArg := dockerutil.MountArg(dir, "/usr/local/apache2/htdocs", dockerutil.ReadOnly)
-	if err := d.Run("-p", "80", mountArg, "httpd"); err != nil {
+	if err := d.Run("-p", "80", mountArg, "gvisor.dev/images/httpd"); err != nil {
 		t.Fatalf("docker run failed: %v", err)
 	}
 	defer d.CleanUp()
@@ -134,19 +133,18 @@ func TestHttpd(t *testing.T) {
 }
 
 func TestNginx(t *testing.T) {
-	if err := dockerutil.Pull("nginx"); err != nil {
-		t.Fatalf("docker pull failed: %v", err)
-	}
 	d := dockerutil.MakeDocker("net-test")
 
-	dir, err := dockerutil.PrepareFiles("test/image/latin10k.txt")
+	// Copy in the 10k payload.
+	dir, cleanup, err := dockerutil.PrepareFiles("test/image/latin10k.txt")
 	if err != nil {
 		t.Fatalf("PrepareFiles() failed: %v", err)
 	}
+	defer cleanup()
 
 	// Start the container.
 	mountArg := dockerutil.MountArg(dir, "/usr/share/nginx/html", dockerutil.ReadOnly)
-	if err := d.Run("-p", "80", mountArg, "nginx"); err != nil {
+	if err := d.Run("-p", "80", mountArg, "gvisor.dev/images/basic_nginx"); err != nil {
 		t.Fatalf("docker run failed: %v", err)
 	}
 	defer d.CleanUp()
@@ -166,13 +164,10 @@ func TestNginx(t *testing.T) {
 }
 
 func TestMysql(t *testing.T) {
-	if err := dockerutil.Pull("mysql"); err != nil {
-		t.Fatalf("docker pull failed: %v", err)
-	}
 	d := dockerutil.MakeDocker("mysql-test")
 
 	// Start the container.
-	if err := d.Run("-e", "MYSQL_ROOT_PASSWORD=foobar123", "mysql"); err != nil {
+	if err := d.Run("-e", "MYSQL_ROOT_PASSWORD=foobar123", "gvisor.dev/images/basic_mysql"); err != nil {
 		t.Fatalf("docker run failed: %v", err)
 	}
 	defer d.CleanUp()
@@ -182,11 +177,13 @@ func TestMysql(t *testing.T) {
 		t.Fatalf("docker.WaitForOutput() timeout: %v", err)
 	}
 
+	// Generate the client and copy in the SQL payload.
 	client := dockerutil.MakeDocker("mysql-client-test")
-	dir, err := dockerutil.PrepareFiles("test/image/mysql.sql")
+	dir, cleanup, err := dockerutil.PrepareFiles("test/image/mysql.sql")
 	if err != nil {
 		t.Fatalf("PrepareFiles() failed: %v", err)
 	}
+	defer cleanup()
 
 	// Tell mysql client to connect to the server and execute the file in verbose
 	// mode to verify the output.
@@ -210,47 +207,9 @@ func TestMysql(t *testing.T) {
 	}
 }
 
-func TestPythonHello(t *testing.T) {
-	// TODO(b/136503277): Once we have more complete python runtime tests,
-	// we can drop this one.
-	const img = "gcr.io/gvisor-presubmit/python-hello"
-	if err := dockerutil.Pull(img); err != nil {
-		t.Fatalf("docker pull failed: %v", err)
-	}
-	d := dockerutil.MakeDocker("python-hello-test")
-	if err := d.Run("-p", "8080", img); err != nil {
-		t.Fatalf("docker run failed: %v", err)
-	}
-	defer d.CleanUp()
-
-	// Find where port 8080 is mapped to.
-	port, err := d.FindPort(8080)
-	if err != nil {
-		t.Fatalf("docker.FindPort(8080) failed: %v", err)
-	}
-
-	// Wait until it's up and running.
-	if err := testutil.WaitForHTTP(port, 30*time.Second); err != nil {
-		t.Fatalf("WaitForHTTP() timeout: %v", err)
-	}
-
-	// Ensure that content is being served.
-	url := fmt.Sprintf("http://localhost:%d", port)
-	resp, err := http.Get(url)
-	if err != nil {
-		t.Errorf("Error reaching http server: %v", err)
-	}
-	if want := http.StatusOK; resp.StatusCode != want {
-		t.Errorf("Wrong response code, got: %d, want: %d", resp.StatusCode, want)
-	}
-}
-
 func TestTomcat(t *testing.T) {
-	if err := dockerutil.Pull("tomcat:8.0"); err != nil {
-		t.Fatalf("docker pull failed: %v", err)
-	}
 	d := dockerutil.MakeDocker("tomcat-test")
-	if err := d.Run("-p", "8080", "tomcat:8.0"); err != nil {
+	if err := d.Run("-p", "8080", "gvisor.dev/images/basic_tomcat"); err != nil {
 		t.Fatalf("docker run failed: %v", err)
 	}
 	defer d.CleanUp()
@@ -278,20 +237,20 @@ func TestTomcat(t *testing.T) {
 }
 
 func TestRuby(t *testing.T) {
-	if err := dockerutil.Pull("ruby"); err != nil {
-		t.Fatalf("docker pull failed: %v", err)
-	}
 	d := dockerutil.MakeDocker("ruby-test")
 
-	dir, err := dockerutil.PrepareFiles("test/image/ruby.rb", "test/image/ruby.sh")
+	// Copy in the ruby entrypoint & payload.
+	dir, cleanup, err := dockerutil.PrepareFiles("test/image/ruby.rb", "test/image/ruby.sh")
 	if err != nil {
 		t.Fatalf("PrepareFiles() failed: %v", err)
 	}
+	defer cleanup()
 	if err := os.Chmod(filepath.Join(dir, "ruby.sh"), 0333); err != nil {
 		t.Fatalf("os.Chmod(%q, 0333) failed: %v", dir, err)
 	}
 
-	if err := d.Run("-p", "8080", dockerutil.MountArg(dir, "/src", dockerutil.ReadOnly), "ruby", "/src/ruby.sh"); err != nil {
+	// Execute the ruby workload.
+	if err := d.Run("-p", "8080", dockerutil.MountArg(dir, "/src", dockerutil.ReadOnly), "gvisor.dev/images/basic_ruby", "/src/ruby.sh"); err != nil {
 		t.Fatalf("docker run failed: %v", err)
 	}
 	defer d.CleanUp()
@@ -326,15 +285,12 @@ func TestRuby(t *testing.T) {
 }
 
 func TestStdio(t *testing.T) {
-	if err := dockerutil.Pull("alpine"); err != nil {
-		t.Fatalf("docker pull failed: %v", err)
-	}
 	d := dockerutil.MakeDocker("stdio-test")
 
 	wantStdout := "hello stdout"
 	wantStderr := "bonjour stderr"
 	cmd := fmt.Sprintf("echo %q; echo %q 1>&2;", wantStdout, wantStderr)
-	if err := d.Run("alpine", "/bin/sh", "-c", cmd); err != nil {
+	if err := d.Run("gvisor.dev/images/basic_alpine", "/bin/sh", "-c", cmd); err != nil {
 		t.Fatalf("docker run failed: %v", err)
 	}
 	defer d.CleanUp()

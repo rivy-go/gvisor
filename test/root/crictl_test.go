@@ -95,7 +95,7 @@ func TestMountOverSymlinks(t *testing.T) {
 		t.Fatalf("failed to setup crictl: %v", err)
 	}
 	defer cleanup()
-	podID, contID, err := crictl.StartPodAndContainer("k8s.gcr.io/busybox", testdata.Sandbox, testdata.MountOverSymlink)
+	podID, contID, err := crictl.StartPodAndContainer("gvisor.dev/images/basic_busybox", testdata.Sandbox, testdata.MountOverSymlink)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,8 +135,8 @@ func TestHomeDir(t *testing.T) {
 		t.Fatalf("failed to setup crictl: %v", err)
 	}
 	defer cleanup()
-	contSpec := testdata.SimpleSpec("root", "k8s.gcr.io/busybox", []string{"sleep", "1000"})
-	podID, contID, err := crictl.StartPodAndContainer("k8s.gcr.io/busybox", testdata.Sandbox, contSpec)
+	contSpec := testdata.SimpleSpec("root", "gvisor.dev/images/basic_busybox", []string{"sleep", "1000"})
+	podID, contID, err := crictl.StartPodAndContainer("gvisor.dev/images/basic_busybox", testdata.Sandbox, contSpec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,8 +153,8 @@ func TestHomeDir(t *testing.T) {
 
 	t.Run("sub-container", func(t *testing.T) {
 		// Create a sub container in the same pod.
-		subContSpec := testdata.SimpleSpec("subcontainer", "k8s.gcr.io/busybox", []string{"sleep", "1000"})
-		subContID, err := crictl.StartContainer(podID, "k8s.gcr.io/busybox", testdata.Sandbox, subContSpec)
+		subContSpec := testdata.SimpleSpec("subcontainer", "gvisor.dev/images/basic_busybox", []string{"sleep", "1000"})
+		subContID, err := crictl.StartContainer(podID, "gvisor.dev/images/basic_busybox", testdata.Sandbox, subContSpec)
 		if err != nil {
 			t.Fatal(err)
 		}

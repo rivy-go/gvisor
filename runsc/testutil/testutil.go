@@ -210,7 +210,13 @@ func Copy(src, dst string) error {
 	}
 	defer in.Close()
 
-	out, err := os.Create(dst)
+	st, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	mode := st.Mode() & 0777 // Only permission, no sticky bits.
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
 	if err != nil {
 		return err
 	}

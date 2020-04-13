@@ -15,7 +15,6 @@
 package iptables
 
 import (
-	"flag"
 	"fmt"
 	"net"
 	"os"
@@ -29,8 +28,6 @@ import (
 )
 
 const timeout = 18 * time.Second
-
-var image = flag.String("image", "bazel/test/iptables/runner:runner-image", "image to run tests in")
 
 type result struct {
 	output string
@@ -51,12 +48,20 @@ func singleTest(test TestCase) error {
 		return fmt.Errorf("no test found with name %q. Has it been registered?", test.Name())
 	}
 
+	// Copy in the runner file, since that is the entrypoint.
+	dir, cleanup, err := dockerutil.PrepareFiles("test/iptables/runner/runner")
+	if err != nil {
+		return fmt.Errorf("PrepareFiles() failed: %v", err)
+	}
+	defer cleanup()
+
 	// Create and start the container.
+	mountArg := dockerutil.MountArg(dir, "/runner", dockerutil.ReadOnly)
 	cont := dockerutil.MakeDocker("gvisor-iptables")
 	defer cont.CleanUp()
 	resultChan := make(chan *result)
 	go func() {
-		output, err := cont.RunFg("--cap-add=NET_ADMIN", *image, "-name", test.Name())
+		output, err := cont.RunFg(mountArg, "--cap-add=NET_ADMIN", "gvisor.dev/images/iptables", "/runner/runner", "-name", test.Name())
 		logContainer(output, err)
 		resultChan <- &result{output, err}
 	}()

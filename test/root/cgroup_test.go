@@ -58,16 +58,14 @@ func verifyPid(pid int, path string) error {
 
 // TestCgroup sets cgroup options and checks that cgroup was properly configured.
 func TestMemCGroup(t *testing.T) {
-	allocMemSize := 128 << 20
-	if err := dockerutil.Pull("python"); err != nil {
-		t.Fatal("docker pull failed:", err)
-	}
 	d := dockerutil.MakeDocker("memusage-test")
 
 	// Start a new container and allocate the specified about of memory.
+	allocMemSize := 128 << 20
 	args := []string{
 		"--memory=256MB",
-		"python",
+		"--entrypoint=",
+		"gvisor.dev/images/basic_python",
 		"python",
 		"-c",
 		fmt.Sprintf("import time; s = 'a' * %d; time.sleep(100)", allocMemSize),
@@ -111,9 +109,6 @@ func TestMemCGroup(t *testing.T) {
 
 // TestCgroup sets cgroup options and checks that cgroup was properly configured.
 func TestCgroup(t *testing.T) {
-	if err := dockerutil.Pull("alpine"); err != nil {
-		t.Fatal("docker pull failed:", err)
-	}
 	d := dockerutil.MakeDocker("cgroup-test")
 
 	// This is not a comprehensive list of attributes.
@@ -191,7 +186,7 @@ func TestCgroup(t *testing.T) {
 		args = append(args, attr.arg)
 	}
 
-	args = append(args, "alpine", "sleep", "10000")
+	args = append(args, "gvisor.dev/images/basic_alpine", "sleep", "10000")
 	if err := d.Run(args...); err != nil {
 		t.Fatal("docker create failed:", err)
 	}
@@ -246,13 +241,10 @@ func TestCgroup(t *testing.T) {
 }
 
 func TestCgroupParent(t *testing.T) {
-	if err := dockerutil.Pull("alpine"); err != nil {
-		t.Fatal("docker pull failed:", err)
-	}
 	d := dockerutil.MakeDocker("cgroup-test")
 
 	parent := testutil.RandomName("runsc")
-	if err := d.Run("--cgroup-parent", parent, "alpine", "sleep", "10000"); err != nil {
+	if err := d.Run("--cgroup-parent", parent, "gvisor.dev/images/basic_alpine", "sleep", "10000"); err != nil {
 		t.Fatal("docker create failed:", err)
 	}
 	defer d.CleanUp()

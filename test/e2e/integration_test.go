@@ -53,11 +53,8 @@ func httpRequestSucceeds(client http.Client, server string, port int) error {
 
 // TestLifeCycle tests a basic Create/Start/Stop docker container life cycle.
 func TestLifeCycle(t *testing.T) {
-	if err := dockerutil.Pull("nginx"); err != nil {
-		t.Fatal("docker pull failed:", err)
-	}
 	d := dockerutil.MakeDocker("lifecycle-test")
-	if err := d.Create("-p", "80", "nginx"); err != nil {
+	if err := d.Create("-p", "80", "gvisor.dev/images/basic_nginx"); err != nil {
 		t.Fatal("docker create failed:", err)
 	}
 	if err := d.Start(); err != nil {
@@ -88,17 +85,13 @@ func TestLifeCycle(t *testing.T) {
 }
 
 func TestPauseResume(t *testing.T) {
-	const img = "gcr.io/gvisor-presubmit/python-hello"
 	if !testutil.IsCheckpointSupported() {
 		t.Log("Checkpoint is not supported, skipping test.")
 		return
 	}
 
-	if err := dockerutil.Pull(img); err != nil {
-		t.Fatal("docker pull failed:", err)
-	}
 	d := dockerutil.MakeDocker("pause-resume-test")
-	if err := d.Run("-p", "8080", img); err != nil {
+	if err := d.Run("-p", "8080", "gvisor.dev/images/basic_python"); err != nil {
 		t.Fatalf("docker run failed: %v", err)
 	}
 	defer d.CleanUp()
@@ -152,17 +145,13 @@ func TestPauseResume(t *testing.T) {
 }
 
 func TestCheckpointRestore(t *testing.T) {
-	const img = "gcr.io/gvisor-presubmit/python-hello"
 	if !testutil.IsCheckpointSupported() {
 		t.Log("Pause/resume is not supported, skipping test.")
 		return
 	}
 
-	if err := dockerutil.Pull(img); err != nil {
-		t.Fatal("docker pull failed:", err)
-	}
 	d := dockerutil.MakeDocker("save-restore-test")
-	if err := d.Run("-p", "8080", img); err != nil {
+	if err := d.Run("-p", "8080", "gvisor.dev/images/basic_python"); err != nil {
 		t.Fatalf("docker run failed: %v", err)
 	}
 	defer d.CleanUp()
@@ -232,12 +221,9 @@ func TestConnectToSelf(t *testing.T) {
 }
 
 func TestMemLimit(t *testing.T) {
-	if err := dockerutil.Pull("alpine"); err != nil {
-		t.Fatal("docker pull failed:", err)
-	}
 	d := dockerutil.MakeDocker("cgroup-test")
 	cmd := "cat /proc/meminfo | grep MemTotal: | awk '{print $2}'"
-	out, err := d.RunFg("--memory=500MB", "alpine", "sh", "-c", cmd)
+	out, err := d.RunFg("--memory=500MB", "gvisor.dev/images/basic_alpine", "sh", "-c", cmd)
 	if err != nil {
 		t.Fatal("docker run failed:", err)
 	}
@@ -262,12 +248,9 @@ func TestMemLimit(t *testing.T) {
 }
 
 func TestNumCPU(t *testing.T) {
-	if err := dockerutil.Pull("alpine"); err != nil {
-		t.Fatal("docker pull failed:", err)
-	}
 	d := dockerutil.MakeDocker("cgroup-test")
 	cmd := "cat /proc/cpuinfo | grep 'processor.*:' | wc -l"
-	out, err := d.RunFg("--cpuset-cpus=0", "alpine", "sh", "-c", cmd)
+	out, err := d.RunFg("--cpuset-cpus=0", "gvisor.dev/images/basic_alpine", "sh", "-c", cmd)
 	if err != nil {
 		t.Fatal("docker run failed:", err)
 	}
@@ -284,13 +267,10 @@ func TestNumCPU(t *testing.T) {
 
 // TestJobControl tests that job control characters are handled properly.
 func TestJobControl(t *testing.T) {
-	if err := dockerutil.Pull("alpine"); err != nil {
-		t.Fatalf("docker pull failed: %v", err)
-	}
 	d := dockerutil.MakeDocker("job-control-test")
 
 	// Start the container with an attached PTY.
-	_, ptmx, err := d.RunWithPty("alpine", "sh")
+	_, ptmx, err := d.RunWithPty("gvisor.dev/images/basic_alpine", "sh")
 	if err != nil {
 		t.Fatalf("docker run failed: %v", err)
 	}
@@ -332,11 +312,8 @@ func TestJobControl(t *testing.T) {
 // TestTmpFile checks that files inside '/tmp' are not overridden. In addition,
 // it checks that working dir is created if it doesn't exit.
 func TestTmpFile(t *testing.T) {
-	if err := dockerutil.Pull("alpine"); err != nil {
-		t.Fatal("docker pull failed:", err)
-	}
 	d := dockerutil.MakeDocker("tmp-file-test")
-	if err := d.Run("-w=/tmp/foo/bar", "--read-only", "alpine", "touch", "/tmp/foo/bar/file"); err != nil {
+	if err := d.Run("-w=/tmp/foo/bar", "--read-only", "gvisor.dev/images/basic_alpine", "touch", "/tmp/foo/bar/file"); err != nil {
 		t.Fatal("docker run failed:", err)
 	}
 	defer d.CleanUp()

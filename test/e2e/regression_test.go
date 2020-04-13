@@ -27,13 +27,10 @@ import (
 // Prerequisite: the directory where the socket file is created must not have
 // been open for write before bind(2) is called.
 func TestBindOverlay(t *testing.T) {
-	if err := dockerutil.Pull("ubuntu:trusty"); err != nil {
-		t.Fatal("docker pull failed:", err)
-	}
 	d := dockerutil.MakeDocker("bind-overlay-test")
 
 	cmd := "nc -l -U /var/run/sock & p=$! && sleep 1 && echo foobar-asdf | nc -U /var/run/sock && wait $p"
-	got, err := d.RunFg("ubuntu:trusty", "bash", "-c", cmd)
+	got, err := d.RunFg("gvisor.dev/images/basic_ubuntu", "bash", "-c", cmd)
 	if err != nil {
 		t.Fatal("docker run failed:", err)
 	}

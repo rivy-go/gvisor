@@ -1,50 +1,63 @@
-UID := $(shell id -u ${USER})
-GID := $(shell id -g ${USER})
-GVISOR_BAZEL_CACHE := $(shell readlink -f ~/.cache/bazel/)
+#!/usr/bin/make -f
 
-# The  --privileged is required to run tests.
-DOCKER_RUN_OPTIONS ?= --privileged
+# Copyright 2019 The gVisor Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-all: runsc
+# OPTIONS are the command line options & arguments provided to bazel. Most
+# commands will be execute via a variant of 'make do OPTIONS="build //foo"'.
+OPTIONS :=
 
-docker-build:
-	docker build -t gvisor-bazel .
+# ARCH is the architecture used for the build. This may be overriden at the
+# command line in order to perform a cross-build (in a limited capacity).
+ARCH := $(shell uname -m)
 
-bazel-shutdown:
-	docker exec -i gvisor-bazel bazel shutdown && \
-	docker kill gvisor-bazel
+default: runsc
+.PHONY: default
 
-bazel-server-start: docker-build
-	mkdir -p "$(GVISOR_BAZEL_CACHE)" && \
-	docker run -d --rm --name gvisor-bazel \
-		--user 0:0 \
-		-v "$(GVISOR_BAZEL_CACHE):$(HOME)/.cache/bazel/" \
-		-v "$(CURDIR):$(CURDIR)" \
-		--workdir "$(CURDIR)" \
-		--tmpfs /tmp:rw,exec \
-		$(DOCKER_RUN_OPTIONS) \
-		gvisor-bazel \
-		sh -c "while :; do sleep 100; done" && \
-	docker exec --user 0:0 -i gvisor-bazel sh -c "groupadd --gid $(GID) --non-unique gvisor && useradd --uid $(UID) --non-unique --gid $(GID) -d $(HOME) gvisor"
+# Load all bazel wrappers.
+ifeq (,$(wildcard tools/google.mk))
+include tools/bazel.mk
+else
+include tools/google.mk
+endif
 
-bazel-server:
-	docker exec gvisor-bazel true || \
-	$(MAKE) bazel-server-start
+# Define macros that will expand to an aggregated blaze command executed via
+# the do call. This allows us to pass any number of targets, e.g. test-foo,
+# test-bar, and aggregate them in the PHONY "test" target for execution
+# together. All these targets are PHONY of course, so there's no real sense
+# about which one failed and which one didn't.
+define wrapper
+$(1)@%: $(1)
+	@true
+$(1):
+	@$(MAKE) do OPTIONS="$(1) $(OPTIONS) $$(subst @,/,$$(patsubst $(1)@%,%,$$(filter $(1)@%,$(MAKECMDGOALS))))"
+.PHONY: $(1)
+endef
 
-BAZEL_OPTIONS := build runsc
-bazel: bazel-server
-	docker exec -u $(UID):$(GID) -i gvisor-bazel bazel $(BAZEL_OPTIONS)
+$(eval $(call wrapper,build))
+$(eval $(call wrapper,test))
+$(eval $(call wrapper,run))
 
-bazel-alias:
-	@echo "alias bazel='docker exec -u $(UID):$(GID) -i gvisor-bazel bazel'"
-
+# Standard entrypoints.
 runsc:
-	$(MAKE) BAZEL_OPTIONS="build runsc" bazel
-
-tests:
-	$(MAKE) BAZEL_OPTIONS="test --test_tag_filters runsc_ptrace //test/syscalls/..." bazel
+	$(MAKE) do OPTIONS="build runsc"
+.PHONY: runsc
 
 unit-tests:
-	$(MAKE) BAZEL_OPTIONS="test //pkg/... //runsc/... //tools/..." bazel
+	$(MAKE) do OPTIONS="test pkg/... runsc/... tools/..."
+.PHONY: unit-tests
 
-.PHONY: docker-build bazel-shutdown bazel-server-start bazel-server bazel runsc tests
+tests:
+	$(MAKE) do OPTIONS="test --test_tag_filter runsc_ptrace test/syscalls/..."
+.PHONY: tests

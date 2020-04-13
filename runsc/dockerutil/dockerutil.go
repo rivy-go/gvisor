@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path"
@@ -185,6 +186,67 @@ func Pull(image string) error {
 	return err
 }
 
+// DockerNetwork contains the name of a docker network.
+type DockerNetwork struct {
+	Name   string
+	Subnet *net.IPNet
+}
+
+// MakeDockerNetwork sets up the struct for a Docker network. Names of networks
+// will be unique.
+func MakeDockerNetwork(namePrefix string) DockerNetwork {
+	return DockerNetwork{
+		Name: testutil.RandomName(namePrefix),
+	}
+}
+
+// Create calls 'docker network create' with the arguments provided.
+func (n *DockerNetwork) Create(args ...string) error {
+	a := []string{"network", "create"}
+	if n.Subnet != nil {
+		a = append(a, fmt.Sprintf("--subnet=%s", n.Subnet))
+	}
+	a = append(a, args...)
+	a = append(a, n.Name)
+	out, err := do(a...)
+	println(out)
+	return err
+}
+
+// Connect calls 'docker network connect' with the arguments provided.
+func (n *DockerNetwork) Connect(container Docker, args ...string) error {
+	a := []string{"network", "connect"}
+	a = append(a, args...)
+	a = append(a, n.Name, container.Name)
+	out, err := do(a...)
+	println(out)
+	return err
+}
+
+// Cleanup cleans up the docker network and all the containers attached to it.
+func (n *DockerNetwork) Cleanup() error {
+	output, err := do("network", "inspect", n.Name, "--format",
+		"{{range $key, $value := .Containers}}{{$key}} {{end}}")
+	if err != nil {
+		return err
+	}
+	output = strings.TrimSpace(output)
+	containers := strings.Split(output, " ")
+	for _, cmd := range []string{"kill", "rm"} {
+		for _, container := range containers {
+			if len(container) != 0 {
+				// Ignore the error, it might be that the container was already cleaned
+				// up.
+				do(cmd, container)
+			}
+		}
+	}
+	if _, err := do("network", "rm", n.Name); err != nil {
+		return err
+	}
+	return nil
+}
+
 // Docker contains the name and the runtime of a docker container.
 type Docker struct {
 	Runtime string
@@ -211,7 +273,10 @@ func (d *Docker) logDockerID() {
 
 // Create calls 'docker create' with the arguments provided.
 func (d *Docker) Create(args ...string) error {
-	a := []string{"create", "--runtime", d.Runtime, "--name", d.Name}
+	a := []string{"create", "--name", d.Name}
+	if len(d.Runtime) != 0 {
+		a = append(a, "--runtime", d.Runtime)
+	}
 	a = append(a, args...)
 	_, err := do(a...)
 	if err == nil {
@@ -234,6 +299,20 @@ func (d *Docker) Stop() error {
 		return fmt.Errorf("error stopping container %q: %v", d.Name, err)
 	}
 	return nil
+}
+
+// cp calls 'docker cp' with the arguments provided.
+func cp(src, dst string, args ...string) error {
+	a := []string{"cp"}
+	a = append(a, args...)
+	a = append(a, src, dst)
+	_, err := do(a...)
+	return err
+}
+
+// CpTo copies from the host to the container.
+func (d *Docker) CpTo(src, dst string, args ...string) error {
+	return cp(src, d.Name+":"+dst, args...)
 }
 
 // Run calls 'docker run' with the arguments provided. The container starts
@@ -305,6 +384,14 @@ func (d *Docker) ExecAsUser(user string, args ...string) (string, error) {
 // attaches a pty to stdio.
 func (d *Docker) ExecWithTerminal(args ...string) (*exec.Cmd, *os.File, error) {
 	a := []string{"exec", "-it", d.Name}
+	a = append(a, args...)
+	return doWithPty(a...)
+}
+
+// ExecWithPty calls 'docker exec -t' with the arguments provided and attaches a
+// pty to stdio.
+func (d *Docker) ExecWithPty(args ...string) (*exec.Cmd, *os.File, error) {
+	a := []string{"exec", "-t", d.Name}
 	a = append(a, args...)
 	return doWithPty(a...)
 }

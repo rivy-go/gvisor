@@ -1,4 +1,5 @@
 load("defs.bzl", "packetimpact_go_test")
+load("//tools:defs.bzl", "go_test")
 
 package(
     default_visibility = ["//test/packetimpact:__subpackages__"],
@@ -64,7 +65,9 @@ packetimpact_go_test(
     ],
 )
 
-sh_binary(
-    name = "test_runner",
-    srcs = ["test_runner.sh"],
+go_test(
+    name = "packetimpact_test",
+    size = "small",
+    srcs = ["packetimpact_test.go"],
+    deps = ["//runsc/dockerutil"],
 )

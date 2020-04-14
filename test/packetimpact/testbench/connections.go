@@ -37,30 +37,30 @@ var remoteIPv4 = flag.String("remote_ipv4", "", "remote IPv4 address for test pa
 var localMAC = flag.String("local_mac", "", "local mac address for test packets")
 var remoteMAC = flag.String("remote_mac", "", "remote mac address for test packets")
 
-// pickPort makes a new socket and returns the socket FD and port. The caller
-// must close the FD when done with the port if there is no error.
-func pickPort() (int, uint16, error) {
+// pickPort makes a new socket and returns the socket FD, address and port. The
+// caller must close the FD when done with the port if there is no error.
+func pickPort() (int, unix.Sockaddr, uint16, error) {
 	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
 	if err != nil {
-		return -1, 0, err
+		return -1, nil, 0, err
 	}
 	var sa unix.SockaddrInet4
 	copy(sa.Addr[0:4], net.ParseIP(*localIPv4).To4())
 	if err := unix.Bind(fd, &sa); err != nil {
 		unix.Close(fd)
-		return -1, 0, err
+		return -1, nil, 0, err
 	}
 	newSockAddr, err := unix.Getsockname(fd)
 	if err != nil {
 		unix.Close(fd)
-		return -1, 0, err
+		return -1, nil, 0, err
 	}
 	newSockAddrInet4, ok := newSockAddr.(*unix.SockaddrInet4)
 	if !ok {
 		unix.Close(fd)
-		return -1, 0, fmt.Errorf("can't cast Getsockname result to SockaddrInet4")
+		return -1, nil, 0, fmt.Errorf("can't cast Getsockname result to SockaddrInet4")
 	}
-	return fd, uint16(newSockAddrInet4.Port), nil
+	return fd, newSockAddrInet4, uint16(newSockAddrInet4.Port), nil
 }
 
 // TCPIPv4 maintains state about a TCP/IPv4 connection.
@@ -92,7 +92,7 @@ func NewTCPIPv4(t *testing.T, outgoingTCP, incomingTCP TCP) TCPIPv4 {
 		t.Fatalf("can't parse remoteMAC %q: %s", *remoteMAC, err)
 	}
 
-	portPickerFD, localPort, err := pickPort()
+	portPickerFD, _, localPort, err := pickPort()
 	if err != nil {
 		t.Fatalf("can't pick a port: %s", err)
 	}
@@ -302,6 +302,7 @@ type UDPIPv4 struct {
 	sniffer      Sniffer
 	injector     Injector
 	portPickerFD int
+	localAddr    unix.Sockaddr
 	t            *testing.T
 }
 
@@ -321,7 +322,7 @@ func NewUDPIPv4(t *testing.T, outgoingUDP, incomingUDP UDP) UDPIPv4 {
 		t.Fatalf("can't parse remoteMAC %q: %s", *remoteMAC, err)
 	}
 
-	portPickerFD, localPort, err := pickPort()
+	portPickerFD, localAddr, localPort, err := pickPort()
 	if err != nil {
 		t.Fatalf("can't pick a port: %s", err)
 	}
@@ -362,6 +363,7 @@ func NewUDPIPv4(t *testing.T, outgoingUDP, incomingUDP UDP) UDPIPv4 {
 		sniffer:      sniffer,
 		injector:     injector,
 		portPickerFD: portPickerFD,
+		localAddr:    localAddr,
 		t:            t,
 	}
 }
@@ -374,6 +376,11 @@ func (conn *UDPIPv4) Close() {
 		conn.t.Fatalf("can't close portPickerFD: %s", err)
 	}
 	conn.portPickerFD = -1
+}
+
+// LocalAddr gets the local socket address of this connection.
+func (conn *UDPIPv4) LocalAddr() unix.Sockaddr {
+	return conn.localAddr
 }
 
 // CreateFrame builds a frame for the connection with the provided udp
@@ -399,6 +406,19 @@ func (conn *UDPIPv4) SendFrame(frame Layers) {
 // Send a packet with reasonable defaults and override some fields by udp.
 func (conn *UDPIPv4) Send(udp UDP, additionalLayers ...Layer) {
 	conn.SendFrame(conn.CreateFrame(udp, additionalLayers...))
+}
+
+// SendICMP sends an ICMP packet with the IP and UDP headers in udp as the ICMP
+// payload.
+func (conn *UDPIPv4) SendICMP(icmpv4 *ICMPv4, udp *UDP) {
+	icmpPayload, err := (&Layers{udp.prev(), udp}).toBytes()
+	if err != nil {
+		conn.t.Fatalf("can't serialize ICMP payload: %s", err)
+	}
+
+	layers := deepcopy.Copy(conn.outgoing[:len(conn.outgoing)-1]).(Layers)
+	layers = append(layers, icmpv4, &Payload{Bytes: icmpPayload})
+	conn.SendFrame(layers)
 }
 
 // Recv gets a packet from the sniffer within the timeout provided. If no packet

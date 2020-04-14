@@ -211,6 +211,33 @@ func (dut *DUT) BindWithErrno(ctx context.Context, fd int32, sa unix.Sockaddr) (
 	return resp.GetRet(), syscall.Errno(resp.GetErrno_())
 }
 
+// Connect calls connect on the DUT and causes a fatal test failure if it
+// doesn't succeed. If more control over the timeout or error handling is
+// needed, use ConnectWithErrno.
+func (dut *DUT) Connect(fd int32, sa unix.Sockaddr) {
+	dut.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), *rpcTimeout)
+	defer cancel()
+	ret, err := dut.ConnectWithErrno(ctx, fd, sa)
+	if ret != 0 {
+		dut.t.Fatalf("failed to connect socket: %s", err)
+	}
+}
+
+// ConnectWithErrno calls bind on the DUT.
+func (dut *DUT) ConnectWithErrno(ctx context.Context, fd int32, sa unix.Sockaddr) (int32, error) {
+	dut.t.Helper()
+	req := pb.ConnectRequest{
+		Sockfd: fd,
+		Addr:   dut.sockaddrToProto(sa),
+	}
+	resp, err := dut.posixServer.Connect(ctx, &req)
+	if err != nil {
+		dut.t.Fatalf("failed to call Connect: %s", err)
+	}
+	return resp.GetRet(), syscall.Errno(resp.GetErrno_())
+}
+
 // Close calls close on the DUT and causes a fatal test failure if it doesn't
 // succeed. If more control over the timeout or error handling is needed, use
 // CloseWithErrno.
@@ -316,6 +343,36 @@ func (dut *DUT) SendWithErrno(ctx context.Context, sockfd int32, buf []byte, fla
 	resp, err := dut.posixServer.Send(ctx, &req)
 	if err != nil {
 		dut.t.Fatalf("failed to call Send: %s", err)
+	}
+	return resp.GetRet(), syscall.Errno(resp.GetErrno_())
+}
+
+// SendTo calls sendto on the DUT and causes a fatal test failure if it doesn't
+// succeed. If more control over the timeout or error handling is needed, use
+// SendToWithErrno.
+func (dut *DUT) SendTo(sockfd int32, buf []byte, flags int32, destAddr unix.Sockaddr) int32 {
+	dut.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), *rpcTimeout)
+	defer cancel()
+	ret, err := dut.SendToWithErrno(ctx, sockfd, buf, flags, destAddr)
+	if ret == -1 {
+		dut.t.Fatalf("failed to sendto: %s", err)
+	}
+	return ret
+}
+
+// SendToWithErrno calls sendto on the DUT.
+func (dut *DUT) SendToWithErrno(ctx context.Context, sockfd int32, buf []byte, flags int32, destAddr unix.Sockaddr) (int32, error) {
+	dut.t.Helper()
+	req := pb.SendToRequest{
+		Sockfd:   sockfd,
+		Buf:      buf,
+		Flags:    flags,
+		DestAddr: dut.sockaddrToProto(destAddr),
+	}
+	resp, err := dut.posixServer.SendTo(ctx, &req)
+	if err != nil {
+		dut.t.Fatalf("faled to call SendTo: %s", err)
 	}
 	return resp.GetRet(), syscall.Errno(resp.GetErrno_())
 }

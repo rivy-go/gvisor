@@ -14,9 +14,12 @@
 
 package testbench
 
-import "testing"
+import (
+	"testing"
 
-import "gvisor.dev/gvisor/pkg/tcpip"
+	"github.com/mohae/deepcopy"
+	"gvisor.dev/gvisor/pkg/tcpip"
+)
 
 func TestLayerMatch(t *testing.T) {
 	var nilPayload *Payload
@@ -46,6 +49,75 @@ func TestLayerMatch(t *testing.T) {
 		}
 		if got := tt.b.match(tt.a); got != tt.want {
 			t.Errorf("%s.match(%s) = %t, want %t", tt.b, tt.a, got, tt.want)
+		}
+	}
+}
+
+func TestLayerMerge(t *testing.T) {
+	zero := Uint32(0)
+	one := Uint32(1)
+	two := Uint32(2)
+	empty := []byte{}
+	foo := []byte("foo")
+	bar := []byte("bar")
+	for _, tt := range []struct {
+		a, b    Layer
+		want    Layer
+		success bool
+	}{
+		{&TCP{AckNum: nil}, &TCP{AckNum: nil}, &TCP{AckNum: nil}, true},
+		{&TCP{AckNum: nil}, &TCP{AckNum: zero}, &TCP{AckNum: zero}, true},
+		{&TCP{AckNum: nil}, &TCP{AckNum: one}, &TCP{AckNum: one}, true},
+		{&TCP{AckNum: nil}, &TCP{AckNum: two}, &TCP{AckNum: two}, true},
+
+		{&TCP{AckNum: zero}, &TCP{AckNum: nil}, &TCP{AckNum: zero}, true},
+		{&TCP{AckNum: zero}, &TCP{AckNum: zero}, &TCP{AckNum: zero}, true},
+		{&TCP{AckNum: zero}, &TCP{AckNum: one}, &TCP{AckNum: one}, true},
+		{&TCP{AckNum: zero}, &TCP{AckNum: two}, &TCP{AckNum: two}, true},
+
+		{&TCP{AckNum: one}, &TCP{AckNum: nil}, &TCP{AckNum: one}, true},
+		{&TCP{AckNum: one}, &TCP{AckNum: zero}, &TCP{AckNum: zero}, true},
+		{&TCP{AckNum: one}, &TCP{AckNum: one}, &TCP{AckNum: one}, true},
+		{&TCP{AckNum: one}, &TCP{AckNum: two}, &TCP{AckNum: two}, true},
+
+		{&TCP{AckNum: two}, &TCP{AckNum: nil}, &TCP{AckNum: two}, true},
+		{&TCP{AckNum: two}, &TCP{AckNum: zero}, &TCP{AckNum: zero}, true},
+		{&TCP{AckNum: two}, &TCP{AckNum: one}, &TCP{AckNum: one}, true},
+		{&TCP{AckNum: two}, &TCP{AckNum: two}, &TCP{AckNum: two}, true},
+
+		{&Payload{Bytes: nil}, &Payload{Bytes: nil}, &Payload{Bytes: nil}, true},
+		{&Payload{Bytes: nil}, &Payload{Bytes: empty}, &Payload{Bytes: empty}, true},
+		{&Payload{Bytes: nil}, &Payload{Bytes: foo}, &Payload{Bytes: foo}, true},
+		{&Payload{Bytes: nil}, &Payload{Bytes: bar}, &Payload{Bytes: bar}, true},
+
+		{&Payload{Bytes: empty}, &Payload{Bytes: nil}, &Payload{Bytes: empty}, true},
+		{&Payload{Bytes: empty}, &Payload{Bytes: empty}, &Payload{Bytes: empty}, true},
+		{&Payload{Bytes: empty}, &Payload{Bytes: foo}, &Payload{Bytes: foo}, true},
+		{&Payload{Bytes: empty}, &Payload{Bytes: bar}, &Payload{Bytes: bar}, true},
+
+		{&Payload{Bytes: foo}, &Payload{Bytes: nil}, &Payload{Bytes: foo}, true},
+		{&Payload{Bytes: foo}, &Payload{Bytes: empty}, &Payload{Bytes: empty}, true},
+		{&Payload{Bytes: foo}, &Payload{Bytes: foo}, &Payload{Bytes: foo}, true},
+		{&Payload{Bytes: foo}, &Payload{Bytes: bar}, &Payload{Bytes: bar}, true},
+
+		{&Payload{Bytes: bar}, &Payload{Bytes: nil}, &Payload{Bytes: bar}, true},
+		{&Payload{Bytes: bar}, &Payload{Bytes: empty}, &Payload{Bytes: empty}, true},
+		{&Payload{Bytes: bar}, &Payload{Bytes: foo}, &Payload{Bytes: foo}, true},
+		{&Payload{Bytes: bar}, &Payload{Bytes: bar}, &Payload{Bytes: bar}, true},
+
+		{&Payload{}, &TCP{}, nil, false},
+	} {
+		a := deepcopy.Copy(tt.a).(Layer)
+		err := a.merge(tt.b)
+		if !tt.success && err == nil {
+			t.Errorf("%s.merge(%s) = nil, wanted an error", tt.a, tt.b)
+		}
+		if tt.success {
+			if err != nil {
+				t.Errorf("%s.merge(%s) = %s, wanted nil", tt.a, tt.b, err)
+			} else if a.String() != tt.want.String() {
+				t.Errorf("%s.merge(%s) merge result got %s, want %s", tt.a, tt.b, a, tt.want)
+			}
 		}
 	}
 }

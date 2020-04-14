@@ -112,13 +112,13 @@ func NewTCPIPv4(t *testing.T, outgoingTCP, incomingTCP TCP) TCPIPv4 {
 	newOutgoingTCP := &TCP{
 		SrcPort: &localPort,
 	}
-	if err := newOutgoingTCP.merge(outgoingTCP); err != nil {
+	if err := newOutgoingTCP.merge(&outgoingTCP); err != nil {
 		t.Fatalf("can't merge %+v into %+v: %s", outgoingTCP, newOutgoingTCP, err)
 	}
 	newIncomingTCP := &TCP{
 		DstPort: &localPort,
 	}
-	if err := newIncomingTCP.merge(incomingTCP); err != nil {
+	if err := newIncomingTCP.merge(&incomingTCP); err != nil {
 		t.Fatalf("can't merge %+v into %+v: %s", incomingTCP, newIncomingTCP, err)
 	}
 	return TCPIPv4{
@@ -158,7 +158,7 @@ func (conn *TCPIPv4) CreateFrame(tcp TCP, additionalLayers ...Layer) Layers {
 		tcp.AckNum = Uint32(uint32(conn.RemoteSeqNum))
 	}
 	layersToSend := deepcopy.Copy(conn.outgoing).(Layers)
-	if err := layersToSend[tcpLayerIndex].(*TCP).merge(tcp); err != nil {
+	if err := layersToSend[tcpLayerIndex].(*TCP).merge(&tcp); err != nil {
 		conn.t.Fatalf("can't merge %+v into %+v: %s", tcp, layersToSend[tcpLayerIndex], err)
 	}
 	layersToSend = append(layersToSend, additionalLayers...)
@@ -347,13 +347,13 @@ func NewUDPIPv4(t *testing.T, outgoingUDP, incomingUDP UDP) UDPIPv4 {
 	newOutgoingUDP := &UDP{
 		SrcPort: &localPort,
 	}
-	if err := newOutgoingUDP.merge(outgoingUDP); err != nil {
+	if err := newOutgoingUDP.merge(&outgoingUDP); err != nil {
 		t.Fatalf("can't merge %+v into %+v: %s", outgoingUDP, newOutgoingUDP, err)
 	}
 	newIncomingUDP := &UDP{
 		DstPort: &localPort,
 	}
-	if err := newIncomingUDP.merge(incomingUDP); err != nil {
+	if err := newIncomingUDP.merge(&incomingUDP); err != nil {
 		t.Fatalf("can't merge %+v into %+v: %s", incomingUDP, newIncomingUDP, err)
 	}
 	return UDPIPv4{
@@ -386,7 +386,7 @@ func (conn *UDPIPv4) Close() {
 // overriding defaults and the additionalLayers added after the UDP header.
 func (conn *UDPIPv4) CreateFrame(udp UDP, additionalLayers ...Layer) Layers {
 	layersToSend := deepcopy.Copy(conn.outgoing).(Layers)
-	if err := layersToSend[udpLayerIndex].(*UDP).merge(udp); err != nil {
+	if err := layersToSend[udpLayerIndex].(*UDP).merge(&udp); err != nil {
 		conn.t.Fatalf("can't merge %+v into %+v: %s", udp, layersToSend[udpLayerIndex], err)
 	}
 	layersToSend = append(layersToSend, additionalLayers...)

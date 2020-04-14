@@ -21,7 +21,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/imdario/mergo"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -49,6 +48,8 @@ type Layer interface {
 	// Otherwise, the values pointed to by the fields must match. The LayerBase is
 	// ignored.
 	match(Layer) bool
+
+	merge(Layer) error
 
 	// length in bytes of the current encapsulation
 	length() int
@@ -121,6 +122,29 @@ func stringLayer(l Layer) string {
 		ret = append(ret, fmt.Sprintf("%s:%v", t.Name, reflect.Indirect(v)))
 	}
 	return fmt.Sprintf("&%s{%s}", t, strings.Join(ret, " "))
+}
+
+// mergeLayer merges y into x. Any fields for which y has a non-nil value, that
+// value overwrite the corresponding fields in x.
+func mergeLayer(x, y Layer) error {
+	if reflect.TypeOf(x) != reflect.TypeOf(y) {
+		return fmt.Errorf("can't merge %T into %T", y, x)
+	}
+	v := reflect.ValueOf(y).Elem()
+	t := v.Type()
+	for i := 0; i < v.NumField(); i++ {
+		t := t.Field(i)
+		if t.Anonymous {
+			// Ignore the LayerBase in the Layer struct.
+			continue
+		}
+		v := v.Field(i)
+		if v.IsNil() {
+			continue
+		}
+		reflect.ValueOf(x).Elem().Field(i).Set(v)
+	}
+	return nil
 }
 
 // Ether can construct and match an ethernet encapsulation.
@@ -216,6 +240,12 @@ func ParseEther(b []byte) (Layer, LayerParser) {
 
 func (l *Ether) match(other Layer) bool {
 	return equalLayer(l, other)
+}
+
+// merge overrides the values in l with the values from other but only in fields
+// where the value is not nil.
+func (l *Ether) merge(other Layer) error {
+	return mergeLayer(l, other)
 }
 
 func (l *Ether) length() int {
@@ -365,6 +395,12 @@ func (l *IPv4) match(other Layer) bool {
 	return equalLayer(l, other)
 }
 
+// merge overrides the values in l with the values from other but only in fields
+// where the value is not nil.
+func (l *IPv4) merge(other Layer) error {
+	return mergeLayer(l, other)
+}
+
 func (l *IPv4) length() int {
 	if l.IHL == nil {
 		return header.IPv4MinimumSize
@@ -504,17 +540,17 @@ func (l *TCP) match(other Layer) bool {
 	return equalLayer(l, other)
 }
 
+// merge overrides the values in l with the values from other but only in fields
+// where the value is not nil.
+func (l *TCP) merge(other Layer) error {
+	return mergeLayer(l, other)
+}
+
 func (l *TCP) length() int {
 	if l.DataOffset == nil {
 		return header.TCPMinimumSize
 	}
 	return int(*l.DataOffset)
-}
-
-// merge overrides the values in l with the values from other but only in fields
-// where the value is not nil.
-func (l *TCP) merge(other TCP) error {
-	return mergo.Merge(l, other, mergo.WithOverride)
 }
 
 // UDP can construct and match a UDP encapsulation.
@@ -591,8 +627,8 @@ func (l *UDP) length() int {
 
 // merge overrides the values in l with the values from other but only in fields
 // where the value is not nil.
-func (l *UDP) merge(other UDP) error {
-	return mergo.Merge(l, other, mergo.WithOverride)
+func (l *UDP) merge(other Layer) error {
+	return mergeLayer(l, other)
 }
 
 // Payload has bytes beyond OSI layer 4.
@@ -620,6 +656,12 @@ func (l *Payload) toBytes() ([]byte, error) {
 
 func (l *Payload) match(other Layer) bool {
 	return equalLayer(l, other)
+}
+
+// merge overrides the values in l with the values from other but only in fields
+// where the value is not nil.
+func (l *Payload) merge(other Layer) error {
+	return mergeLayer(l, other)
 }
 
 func (l *Payload) length() int {

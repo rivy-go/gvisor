@@ -219,13 +219,6 @@ go_repository(
 )
 
 go_repository(
-    name = "com_github_imdario_mergo",
-    importpath = "github.com/imdario/mergo",
-    version = "v0.3.8",
-    sum = "h1:CGgOkSJeqMRmt0D9XLWExdT4m4F1vd3FV3VPt+0VxkQ=",
-)
-
-go_repository(
     name = "com_github_kr_pretty",
     importpath = "github.com/kr/pretty",
     sum = "h1:s5hAObm+yFO5uHYt5dYjxi2rXrsnmRpJx4OYvIWUaQs=",

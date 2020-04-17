@@ -15,7 +15,7 @@
 # limitations under the License.
 
 # Install our runtime.
-$(dirname $0)/runsc install
+$(find . -executable -a -type f -a -name runsc) install
 
 # Restart docker.
 service docker restart || true

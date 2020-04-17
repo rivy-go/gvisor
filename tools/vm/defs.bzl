@@ -38,13 +38,13 @@ vm_image_builder = rule(
     attrs = {
         "_builder": attr.label(
             executable = True,
-            default = "//tools/images:builder",
+            default = "//tools/vm:builder",
             cfg = "host",
         ),
         "username": attr.string(default = "$(whoami)"),
         "zone": attr.label(
             executable = True,
-            default = "//tools/images:zone",
+            default = "//tools/vm:zone",
             cfg = "host",
         ),
         "family": attr.string(mandatory = True),
@@ -109,9 +109,9 @@ def _vm_test_impl(ctx):
     # they can be copied over for remote execution.
     runner_content = "\n".join([
         "#!/bin/bash",
-        "export ZONE=$(cat %s)" % ctx.files.zone[0].short_path,
+        "export ZONE=$(%s)" % ctx.files.zone[0].short_path,
         "export USERNAME=%s" % ctx.attr.username,
-        "export IMAGE=$(cat %s)" % ctx.files.image[0].short_path,
+        "export IMAGE=$(%s)" % ctx.files.image[0].short_path,
         "export SUDO=%s" % "true" if ctx.attr.sudo else "false",
         "%s %s" % (
             ctx.executable.executer.short_path,
@@ -141,17 +141,19 @@ def _vm_test_impl(ctx):
 _vm_test = rule(
     attrs = {
         "image": attr.label(
-            mandatory = True,
+            executable = True,
+            default = "//tools/vm:default",
             cfg = "host",
         ),
         "executer": attr.label(
             executable = True,
-            default = "//tools/images:executer",
+            default = "//tools/vm:executer",
             cfg = "host",
         ),
         "username": attr.string(default = "$(whoami)"),
         "zone": attr.label(
-            default = "//tools/images:zone",
+            executable = True,
+            default = "//tools/vm:zone",
             cfg = "host",
         ),
         "sudo": attr.bool(default = True),
@@ -167,7 +169,7 @@ _vm_test = rule(
 )
 
 def vm_test(
-        installer = "//tools/installers:head",
+        installers = None,
         **kwargs):
     """Runs the given targets as a remote test.
 
@@ -176,8 +178,9 @@ def vm_test(
       **kwargs: All test arguments. Should include targets and image.
     """
     targets = kwargs.pop("targets", [])
-    if installer:
-        targets = [installer] + targets
+    if installers == None:
+        installers = ["//tools/installers:head"]
+    targets = installers + targets
     if default_installer():
         targets = [default_installer()] + targets
     _vm_test(

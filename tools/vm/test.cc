@@ -16,7 +16,11 @@
 
 namespace {
 
-TEST(Image, Sanity) {
+TEST(Image, Sanity0) {
+  // Do nothing.
+}
+
+TEST(Image, Sanity1) {
   // Do nothing.
 }
 
